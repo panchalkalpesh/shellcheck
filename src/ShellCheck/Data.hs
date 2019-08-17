@@ -36,13 +36,29 @@ internalVariables = [
 
     -- Ksh
     , ".sh.version"
+
+    -- shflags
+    , "FLAGS_ARGC", "FLAGS_ARGV", "FLAGS_ERROR", "FLAGS_FALSE", "FLAGS_HELP",
+    "FLAGS_PARENT", "FLAGS_RESERVED", "FLAGS_TRUE", "FLAGS_VERSION",
+    "flags_error", "flags_return"
   ]
 
-variablesWithoutSpaces = [
-    "$", "-", "?", "!",
+specialVariablesWithoutSpaces = [
+    "$", "-", "?", "!", "#"
+  ]
+variablesWithoutSpaces = specialVariablesWithoutSpaces ++ [
     "BASHPID", "BASH_ARGC", "BASH_LINENO", "BASH_SUBSHELL", "EUID", "LINENO",
     "OPTIND", "PPID", "RANDOM", "SECONDS", "SHELLOPTS", "SHLVL", "UID",
     "COLUMNS", "HISTFILESIZE", "HISTSIZE", "LINES"
+
+    -- shflags
+    , "FLAGS_ERROR", "FLAGS_FALSE", "FLAGS_TRUE"
+  ]
+
+specialVariables = specialVariablesWithoutSpaces ++ ["@", "*"]
+
+unbracedVariables = specialVariables ++ [
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
   ]
 
 arrayVariables = [
@@ -77,6 +93,14 @@ commonCommands = [
     "zcat"
   ]
 
+nonReadingCommands = [
+    "alias", "basename", "bg", "cal", "cd", "chgrp", "chmod", "chown",
+    "cp", "du", "echo", "export", "false", "fg", "fuser", "getconf",
+    "getopt", "getopts", "ipcrm", "ipcs", "jobs", "kill", "ln", "ls",
+    "locale", "mv", "printf", "ps", "pwd", "renice", "rm", "rmdir",
+    "set", "sleep", "touch", "trap", "true", "ulimit", "unalias", "uname"
+    ]
+
 sampleWords = [
     "alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
     "golf", "hotel", "india", "juliett", "kilo", "lima", "mike",
@@ -101,6 +125,7 @@ shellForExecutable name =
     case name of
         "sh"    -> return Sh
         "bash"  -> return Bash
+        "bats"  -> return Bash
         "dash"  -> return Dash
         "ash"   -> return Dash -- There's also a warning for this.
         "ksh"   -> return Ksh

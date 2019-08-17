@@ -1,8 +1,8 @@
 {-
-    Copyright 2012-2015 Vidar Holen
+    Copyright 2012-2019 Vidar Holen
 
     This file is part of ShellCheck.
-    http://www.vidarholen.net/contents/shellcheck
+    https://www.shellcheck.net
 
     ShellCheck is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -15,30 +15,33 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 module ShellCheck.AST where
 
-import Control.Monad
+import GHC.Generics (Generic)
 import Control.Monad.Identity
+import Control.DeepSeq
 import Text.Parsec
 import qualified ShellCheck.Regex as Re
+import Prelude hiding (id)
 
-data Id = Id Int deriving (Show, Eq, Ord)
+newtype Id = Id Int deriving (Show, Eq, Ord, Generic, NFData)
 
 data Quoted = Quoted | Unquoted deriving (Show, Eq)
 data Dashed = Dashed | Undashed deriving (Show, Eq)
 data AssignmentMode = Assign | Append deriving (Show, Eq)
-data FunctionKeyword = FunctionKeyword Bool deriving (Show, Eq)
-data FunctionParentheses = FunctionParentheses Bool deriving (Show, Eq)
+newtype FunctionKeyword = FunctionKeyword Bool deriving (Show, Eq)
+newtype FunctionParentheses = FunctionParentheses Bool deriving (Show, Eq)
 data CaseType = CaseBreak | CaseFallThrough | CaseContinue deriving (Show, Eq)
 
-data Root = Root Token
+newtype Root = Root Token
 data Token =
     TA_Binary Id String Token Token
     | TA_Assignment Id String Token Token
+    | TA_Variable Id String [Token]
     | TA_Expansion Id [Token]
-    | TA_Index Id Token
     | TA_Sequence Id [Token]
     | TA_Trinary Id Token Token Token
     | TA_Unary Id String Token
@@ -48,8 +51,9 @@ data Token =
     | TC_Nullary Id ConditionType Token
     | TC_Or Id ConditionType String Token Token
     | TC_Unary Id ConditionType String Token
+    | TC_Empty Id ConditionType
     | T_AND_IF Id
-    | T_AndIf Id (Token) (Token)
+    | T_AndIf Id Token Token
     | T_Arithmetic Id Token
     | T_Array Id [Token]
     | T_IndexedElement Id [Token] Token
@@ -72,7 +76,7 @@ data Token =
     | T_DSEMI Id
     | T_Do Id
     | T_DollarArithmetic Id Token
-    | T_DollarBraced Id Token
+    | T_DollarBraced Id Bool Token
     | T_DollarBracket Id Token
     | T_DollarDoubleQuoted Id [Token]
     | T_DollarExpansion Id [Token]
@@ -110,14 +114,14 @@ data Token =
     | T_NEWLINE Id
     | T_NormalWord Id [Token]
     | T_OR_IF Id
-    | T_OrIf Id (Token) (Token)
+    | T_OrIf Id Token Token
     | T_ParamSubSpecialChar Id String -- e.g. '%' in ${foo%bar}  or '/' in ${foo/bar/baz}
     | T_Pipeline Id [Token] [Token] -- [Pipe separators] [Commands]
     | T_ProcSub Id String [Token]
     | T_Rbrace Id
     | T_Redirecting Id [Token] Token
     | T_Rparen Id
-    | T_Script Id String [Token]
+    | T_Script Id Token [Token] -- Shebang T_Literal, followed by script.
     | T_Select Id
     | T_SelectIn Id String [Token] [Token]
     | T_Semi Id
@@ -133,13 +137,17 @@ data Token =
     | T_Pipe Id String
     | T_CoProc Id (Maybe String) Token
     | T_CoProcBody Id Token
-    | T_Include Id Token Token -- . & source: SimpleCommand T_Script
+    | T_Include Id Token
+    | T_SourceCommand Id Token Token
+    | T_BatsTest Id Token Token
     deriving (Show)
 
 data Annotation =
     DisableComment Integer
+    | EnableComment String
     | SourceOverride String
     | ShellOverride String
+    | SourcePath String
     deriving (Show, Eq)
 data ConditionType = DoubleBracket | SingleBracket deriving (Show, Eq)
 
@@ -161,11 +169,6 @@ analyze f g i =
         g t
         i newT
     roundAll = mapM round
-
-    roundMaybe Nothing = return Nothing
-    roundMaybe (Just v) = do
-        s <- round v
-        return (Just s)
 
     dl l v = do
         x <- roundAll l
@@ -250,7 +253,7 @@ analyze f g i =
     delve (T_Function id a b name body) = d1 body $ T_Function id a b name
     delve (T_Condition id typ token) = d1 token $ T_Condition id typ
     delve (T_Extglob id str l) = dl l $ T_Extglob id str
-    delve (T_DollarBraced id op) = d1 op $ T_DollarBraced id
+    delve (T_DollarBraced id braced op) = d1 op $ T_DollarBraced id braced
     delve (T_HereDoc id d q str l) = dl l $ T_HereDoc id d q str
 
     delve (TC_And id typ str t1 t2) = d2 t1 t2 $ TC_And id typ str
@@ -270,13 +273,16 @@ analyze f g i =
         c <- round t3
         return $ TA_Trinary id a b c
     delve (TA_Expansion id t) = dl t $ TA_Expansion id
-    delve (TA_Index id t) = d1 t $ TA_Index id
+    delve (TA_Variable id str t) = dl t $ TA_Variable id str
     delve (T_Annotation id anns t) = d1 t $ T_Annotation id anns
     delve (T_CoProc id var body) = d1 body $ T_CoProc id var
     delve (T_CoProcBody id t) = d1 t $ T_CoProcBody id
-    delve (T_Include id includer script) = d2 includer script $ T_Include id
+    delve (T_Include id script) = d1 script $ T_Include id
+    delve (T_SourceCommand id includer t_include) = d2 includer t_include $ T_SourceCommand id
+    delve (T_BatsTest id name t) = d2 name t $ T_BatsTest id
     delve t = return t
 
+getId :: Token -> Id
 getId t = case t of
         T_AND_IF id  -> id
         T_OR_IF id  -> id
@@ -317,7 +323,7 @@ getId t = case t of
         T_NormalWord id _  -> id
         T_DoubleQuoted id _  -> id
         T_DollarExpansion id _  -> id
-        T_DollarBraced id _  -> id
+        T_DollarBraced id _ _ -> id
         T_DollarArithmetic id _  -> id
         T_BraceExpansion id _  -> id
         T_ParamSubSpecialChar id _ -> id
@@ -363,7 +369,6 @@ getId t = case t of
         TA_Sequence id _  -> id
         TA_Trinary id _ _ _  -> id
         TA_Expansion id _  -> id
-        TA_Index id _  -> id
         T_ProcSub id _ _ -> id
         T_Glob id _ -> id
         T_ForArithmetic id _ _ _ _ -> id
@@ -374,12 +379,19 @@ getId t = case t of
         T_Pipe id _ -> id
         T_CoProc id _ _ -> id
         T_CoProcBody id _ -> id
-        T_Include id _ _ -> id
+        T_Include id _ -> id
+        T_SourceCommand id _ _ -> id
         T_UnparsedIndex id _ _ -> id
+        TC_Empty id _ -> id
+        TA_Variable id _ _ -> id
+        T_BatsTest id _ _ -> id
 
 blank :: Monad m => Token -> m ()
 blank = const $ return ()
+doAnalysis :: Monad m => (Token -> m ()) -> Token -> m Token
 doAnalysis f = analyze f blank return
+doStackAnalysis :: Monad m => (Token -> m ()) -> (Token -> m ()) -> Token -> m Token
 doStackAnalysis startToken endToken = analyze startToken endToken return
+doTransform :: (Token -> Token) -> Token -> Token
 doTransform i = runIdentity . analyze blank blank (return . i)
 

@@ -1,4 +1,4 @@
-# Created by http://www.gitignore.io
+# Created by https://www.gitignore.io
 
 ### Haskell ###
 dist
@@ -13,3 +13,10 @@ cabal-dev
 cabal.sandbox.config
 cabal.config
 .stack-work
+
+### Snap ###
+/snap/.snapcraft/
+/stage/
+/parts/
+/prime/
+*.snap

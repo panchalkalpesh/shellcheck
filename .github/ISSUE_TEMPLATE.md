@@ -1,8 +1,8 @@
 #### For bugs
 - Rule Id (if any, e.g. SC1000): 
 - My shellcheck version (`shellcheck --version` or "online"): 
+- [ ] The rule's wiki page does not already cover this (e.g. https://shellcheck.net/wiki/SC2086)
 - [ ] I tried on shellcheck.net and verified that this is still a problem on the latest commit
-- [ ] It's not reproducible on shellcheck.net, but I think that's because it's an OS, configuration or encoding issue
 
 #### For new checks and feature suggestions
 - [ ] shellcheck.net (i.e. the latest commit) currently gives no useful warnings about this
